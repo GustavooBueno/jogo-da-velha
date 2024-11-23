@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jogo da Velha Multiplayer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="login-screen" class="screen">
+        <h1 class="title">🎮 Jogo da Velha Multiplayer</h1>
+        <div class="form">
+            <input id="player-name" type="text" placeholder="Digite seu nome">
+            <button id="join-btn" class="btn">Entrar no Jogo</button>
+        </div>
+    </div>
+
+    <div id="game-screen" class="screen" style="display: none;">
+        <header class="header">
+            <h2 id="player-info" class="player-info">Jogador: </h2>
+        </header>
+        <div id="board" class="board"></div>
+        <h3 id="game-status" class="status"></h3>
+        <button id="reset-btn" class="btn" style="display: none;">🔄 Jogar Novamente</button>
+    </div>
+
+    <div id="ranking-screen" class="screen ranking-screen" style="display: none;">
+        <h2 class="title">🏆 Ranking</h2>
+        <ul id="ranking-list" class="ranking-list"></ul>
+    </div>
+      
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

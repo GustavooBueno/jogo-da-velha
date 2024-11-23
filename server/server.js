@@ -1,12 +1,33 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const mqtt = require('mqtt'); // Biblioteca MQTT
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+// Configurações
 const PORT = 3000;
+const MQTT_BROKER_URL = 'mqtt://test.mosquitto.org';
+const MQTT_TOPIC_LOGS = 'tic-tac-toe/logs';
+
+// MQTT Client
+const mqttClient = mqtt.connect(MQTT_BROKER_URL);
+
+mqttClient.on('connect', () => {
+    console.log('Conectado ao broker MQTT');
+});
+
+// Funções para logs e persistência com MQTT
+const logEvent = (message) => {
+    const logMessage = {
+        timestamp: new Date().toISOString(),
+        message,
+    };
+    console.log(`[LOG] ${logMessage.timestamp} - ${logMessage.message}`);
+    mqttClient.publish(MQTT_TOPIC_LOGS, JSON.stringify(logMessage));
+};
 
 // Variáveis do jogo
 let players = [];
@@ -20,16 +41,19 @@ app.use(express.static('../client'));
 const updateRanking = (players, winnerSymbol) => {
     const winner = players.find((player) => player.symbol === winnerSymbol);
     if (winner) {
-        ranking[winner.name] = (ranking[winner.name] || 0) + 1; // Adiciona ou incrementa pontuação
+        ranking[winner.name] = (ranking[winner.name] || 0) + 1;
+        logEvent(`Ranking atualizado: ${winner.name} agora tem ${ranking[winner.name]} pontos.`);
     }
 };
 
 const broadcastRanking = () => {
-    // Ordena o ranking por pontuação antes de enviar
     const sortedRanking = Object.entries(ranking)
         .sort(([, pointsA], [, pointsB]) => pointsB - pointsA)
         .reduce((acc, [name, points]) => ({ ...acc, [name]: points }), {});
     io.emit('rankingUpdated', sortedRanking);
+
+    // Publicar ranking atualizado no MQTT
+    mqttClient.publish(MQTT_TOPIC_LOGS, JSON.stringify({ event: 'rankingUpdated', ranking: sortedRanking }));
 };
 
 // Lógica do WebSocket
@@ -57,7 +81,7 @@ io.on('connection', (socket) => {
             games[gameId] = {
                 players: [{ id: socket.id, name: playerName, symbol: 'X' }], // Jogador 1 é 'X'
                 board: Array(9).fill(null),
-                currentTurn: 'X'
+                currentTurn: 'X',
             };
         }
     
@@ -65,51 +89,32 @@ io.on('connection', (socket) => {
         socket.emit('game_joined', { gameId, board: games[gameId].board });
         io.to(gameId).emit('update_board', games[gameId].board);
     
-        console.log(`Jogador ${playerName} (${gameId}) entrou no jogo`);
-    });
-
-    socket.on('reset_game', (gameId) => {
-        const game = games[gameId];
-        if (!game) {
-            socket.emit('error_message', 'O jogo não foi encontrado. Por favor, reconecte.');
-            return;
-        }
-    
-        // Reiniciar o estado do jogo
-        game.board = Array(9).fill(null); // Limpar o tabuleiro
-        game.currentTurn = 'X'; // O turno inicial volta para 'X'
-    
-        // Notificar todos os jogadores na sala do novo estado
-        io.to(gameId).emit('game_reset', { board: game.board, currentTurn: game.currentTurn });
-    
-        console.log(`Jogo ${gameId} reiniciado com sucesso.`);
+        // Log de entrada no MQTT
+        logEvent(`Jogador ${playerName} entrou na sala ${gameId}`);
     });
 
     socket.on('make_move', ({ gameId, position }) => {
         const game = games[gameId];
         if (!game) return;
-    
+
         const player = game.players.find((p) => p.id === socket.id);
         if (!player) return;
-    
-        // Validar turno
+
         if (game.currentTurn !== player.symbol) {
             socket.emit('error_message', 'Não é sua vez de jogar!');
             return;
         }
-    
-        // Atualizar tabuleiro
+
         if (!game.board[position]) {
             game.board[position] = game.currentTurn;
             game.currentTurn = game.currentTurn === 'X' ? 'O' : 'X';
-    
-            // Verificar vitória ou empate
+
             const result = checkGameResult(game.board);
             if (result) {
                 io.to(gameId).emit('game_over', { result, board: game.board });
                 if (result !== 'Draw') {
-                    updateRanking(game.players, result); // Atualiza o ranking se houver um vencedor
-                    broadcastRanking(); // Envia o ranking atualizado para todos os clientes
+                    updateRanking(game.players, result);
+                    broadcastRanking();
                 }
             } else {
                 io.to(gameId).emit('update_board', { board: game.board, currentTurn: game.currentTurn });
@@ -118,7 +123,12 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
+        const disconnectedPlayer = players.find((player) => player.id === socket.id);
         players = players.filter((player) => player.id !== socket.id);
+
+        if (disconnectedPlayer) {
+            logEvent(`Jogador ${disconnectedPlayer.name} desconectou.`);
+        }
         console.log('Jogador desconectado:', socket.id);
     });
 });
@@ -128,7 +138,7 @@ function checkGameResult(board) {
     const winPatterns = [
         [0, 1, 2], [3, 4, 5], [6, 7, 8], // Linhas
         [0, 3, 6], [1, 4, 7], [2, 5, 8], // Colunas
-        [0, 4, 8], [2, 4, 6]            // Diagonais
+        [0, 4, 8], [2, 4, 6],            // Diagonais
     ];
 
     for (const pattern of winPatterns) {

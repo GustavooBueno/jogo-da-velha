@@ -122,6 +122,25 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('reset_game', (gameId) => {
+        const game = games[gameId];
+        if (!game) {
+            socket.emit('error_message', 'Jogo não encontrado.');
+            return;
+        }
+    
+        // Reiniciar o estado do jogo
+        game.board = Array(9).fill(null); // Tabuleiro vazio
+        game.currentTurn = 'X'; // Reinicia o turno para 'X'
+    
+        // Notificar os jogadores da sala sobre o reset
+        io.to(gameId).emit('game_reset', { board: game.board, currentTurn: game.currentTurn });
+    
+        // Log no MQTT
+        logEvent(`O jogo ${gameId} foi reiniciado.`);
+    });
+    
+
     socket.on('disconnect', () => {
         const disconnectedPlayer = players.find((player) => player.id === socket.id);
         players = players.filter((player) => player.id !== socket.id);
